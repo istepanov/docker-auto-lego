@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 
 import os
+import asyncio
 from datetime import datetime
+from asyncio.subprocess import PIPE, STDOUT
 from plumbum import RETCODE
 from plumbum.cmd import docker, lego, openssl, grep, cut
 
@@ -81,18 +83,37 @@ def check_certificates():
                 print('Failed. Return code: {0}'.format(return_code))
 
 
+async def cron():
+    while True:
+        await asyncio.sleep(3600)
+        check_certificates()
+
+
+async def watch_docker_events():
+    process = await asyncio.create_subprocess_exec(
+        'docker', 'events',
+        '-f', 'event=create',
+        '-f', 'event=destroy',
+        stdout=PIPE, stderr=STDOUT
+    )
+
+    while True:
+        line = await asyncio.wait_for(process.stdout.readline(), None)
+        print(line)
+        if line:
+            check_certificates()
+
+
 if __name__ == '__main__':
     check_certificates()
 
     print('Watching for Docker events...')
 
-    docker_events = docker[
-        'events',
-        '-f', 'event=create',
-        '-f', 'event=destroy'
-    ]
-    p = docker_events.popen()
-    while p.poll() is None:
-        output = p.stdout.readline()
-        print(output)
-        check_certificates()
+    cron_task = asyncio.ensure_future(cron())
+    watch_docker_events_task = asyncio.ensure_future(watch_docker_events())
+
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(
+        asyncio.wait([cron_task, watch_docker_events_task], return_when=asyncio.FIRST_COMPLETED)
+    )
+    loop.close()
