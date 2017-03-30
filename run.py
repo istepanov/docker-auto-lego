@@ -12,6 +12,7 @@ LEGO_DIR = os.getenv('LEGO_DIR', '/var/lego')
 LEGO_DNS = os.getenv('LEGO_DNS', 'route53')
 LEGO_DAYS_BEFORE_EXPIRE = int(os.getenv('LEGO_DAYS_BEFORE_EXPIRE', '30'))
 LETSENCRYPT_SERVER = os.getenv('LETSENCRYPT_SERVER', '')
+DOCKER_GEN_CONTAINER_NAME = os.getenv('DOCKER_GEN_CONTAINER_NAME', '')
 
 
 def get_containers():
@@ -79,6 +80,10 @@ def check_certificates():
             return_code = lego_command & RETCODE(FG=True)
             if return_code == 0:
                 print('Done.')
+                if DOCKER_GEN_CONTAINER_NAME:
+                    print('Restarting {0}... '.format(DOCKER_GEN_CONTAINER_NAME), end='')
+                    docker['kill', '--signal', 'SIGHUP', DOCKER_GEN_CONTAINER_NAME](retcode = None)
+                    print('Done.')
             else:
                 print('Failed. Return code: {0}'.format(return_code))
 
