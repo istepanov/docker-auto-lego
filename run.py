@@ -28,7 +28,7 @@ def get_containers():
     output = docker[
         'ps',
         '--filter', 'status=running',
-        '--filter', 'label=LETSENCRYPT_HOST',
+        '--filter', 'label=LETSENCRYPT_DOMAINS',
         '--filter', 'label=LETSENCRYPT_EMAIL',
         '--format', '{{.ID}}|{{.Labels}}']()
 
@@ -38,7 +38,7 @@ def get_containers():
         labels = dict(
             (l, v) for l, v in (
                 s.split("=") for s in labels.split(","))
-            if l in ['LETSENCRYPT_HOST', 'LETSENCRYPT_EMAIL']
+            if l in ['LETSENCRYPT_DOMAINS', 'LETSENCRYPT_EMAIL']
         )
 
         containers.append({
@@ -55,23 +55,27 @@ def check_certificates():
     for container in containers:
         print('Checking certs for container {0}'.format(container['id']))
 
-        letsencrypt_host = container['labels']['LETSENCRYPT_HOST']
         letsencrypt_email = container['labels']['LETSENCRYPT_EMAIL']
+        letsencrypt_domains = container['labels']['LETSENCRYPT_DOMAINS']
+        letsencrypt_domains = [d.strip() for d in letsencrypt_domains.split(',')]
+        letsencrypt_domains = [d for d in letsencrypt_domains if d]
+
+        assert len(letsencrypt_domains) > 0
 
         action = None
-        public_cert = os.path.join(LEGO_DIR, 'certificates', '{0}.crt'.format(letsencrypt_host))
-        private_key = os.path.join(LEGO_DIR, 'certificates', '{0}.key'.format(letsencrypt_host))
+        public_cert = os.path.join(LEGO_DIR, 'certificates', '{0}.crt'.format(letsencrypt_domains[0]))
+        private_key = os.path.join(LEGO_DIR, 'certificates', '{0}.key'.format(letsencrypt_domains[0]))
         if os.path.isfile(public_cert) or os.path.isfile(private_key):
             expiration_date_string = (openssl['x509', '-in', public_cert, '-text', '-noout'] | grep['Not After'] | cut['-c', '25-'])().strip()
             expiration_date = datetime.strptime(expiration_date_string, '%b %d %H:%M:%S %Y %Z')
             days_to_expire = (expiration_date - datetime.utcnow()).days
             if days_to_expire > LEGO_DAYS_BEFORE_EXPIRE:
-                print('The certificate for {0} is up to date, no need for renewal ({1} days left).'.format(letsencrypt_host, days_to_expire))
+                print('The certificate for {0} is up to date, no need for renewal ({1} days left).'.format(letsencrypt_domains[0], days_to_expire))
             else:
-                print('The certificate for {0} is about to expire in {1} days. Renewing... '.format(letsencrypt_host, days_to_expire), end='')
+                print('The certificate for {0} is about to expire in {1} days. Renewing... '.format(letsencrypt_domains[0], days_to_expire), end='')
                 action = 'renew'
         else:
-            print('The certificate for {0} is not found. Creating new one... '.format(letsencrypt_host), end='')
+            print('The certificate for {0} is not found. Creating new one... '.format(letsencrypt_domains[0]), end='')
             action = 'run'
 
         if action is not None:
@@ -79,8 +83,9 @@ def check_certificates():
                 '--accept-tos',
                 '--path', LEGO_DIR,
                 '--email', letsencrypt_email,
-                '--domains', letsencrypt_host,
             ]
+            for domain in letsencrypt_domains:
+                lego_command = lego_command['--domains', domain]
             if LEGO_DNS:
                 lego_command = lego_command['--dns', LEGO_DNS]
             elif LEGO_WEBROOT:
