@@ -66,6 +66,7 @@ def check_certificates():
         public_cert = os.path.join(LEGO_DIR, 'certificates', '{0}.crt'.format(letsencrypt_domains[0]))
         private_key = os.path.join(LEGO_DIR, 'certificates', '{0}.key'.format(letsencrypt_domains[0]))
         if os.path.isfile(public_cert) or os.path.isfile(private_key):
+            # TODO: instead of calling openssl we can just use '--days' parameter
             expiration_date_string = (openssl['x509', '-in', public_cert, '-text', '-noout'] | grep['Not After'] | cut['-c', '25-'])().strip()
             expiration_date = datetime.strptime(expiration_date_string, '%b %d %H:%M:%S %Y %Z')
             days_to_expire = (expiration_date - datetime.utcnow()).days
