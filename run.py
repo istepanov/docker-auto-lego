@@ -2,6 +2,8 @@
 
 import os
 import asyncio
+import functools
+import signal
 from datetime import datetime
 from asyncio.subprocess import PIPE, STDOUT
 from plumbum import RETCODE
@@ -9,10 +11,17 @@ from plumbum.cmd import docker, lego, openssl, grep, cut
 
 
 LEGO_DIR = os.getenv('LEGO_DIR', '/var/lego')
-LEGO_DNS = os.getenv('LEGO_DNS', 'route53')
+LEGO_DNS = os.getenv('LEGO_DNS', None)
+LEGO_WEBROOT = os.getenv('LEGO_WEBROOT', None)
 LEGO_DAYS_BEFORE_EXPIRE = int(os.getenv('LEGO_DAYS_BEFORE_EXPIRE', '30'))
 LETSENCRYPT_SERVER = os.getenv('LETSENCRYPT_SERVER', '')
 DOCKER_GEN_CONTAINER_NAME = os.getenv('DOCKER_GEN_CONTAINER_NAME', '')
+
+
+if LEGO_DNS and LEGO_WEBROOT:
+    raise ValueError('Cannot specify both LEGO_DNS and LEGO_WEBROOT environment variables simultaneously. Choose one option.')
+elif not LEGO_DNS and not LEGO_WEBROOT:
+    raise ValueError('Specify either LEGO_DNS or LEGO_WEBROOT environment variable.')
 
 
 def get_containers():
@@ -71,8 +80,11 @@ def check_certificates():
                 '--path', LEGO_DIR,
                 '--email', letsencrypt_email,
                 '--domains', letsencrypt_host,
-                '--dns', LEGO_DNS,
             ]
+            if LEGO_DNS:
+                lego_command = lego_command['--dns', LEGO_DNS]
+            elif LEGO_WEBROOT:
+                lego_command = lego_command['--webroot', LEGO_WEBROOT]
             if LETSENCRYPT_SERVER:
                 lego_command = lego_command['--server', LETSENCRYPT_SERVER]
             lego_command = lego_command[action]
@@ -109,6 +121,11 @@ async def watch_docker_events():
             check_certificates()
 
 
+def ask_exit(signame):
+    print('Got signal {0}: exit'.format(signame))
+    loop.stop()
+
+
 if __name__ == '__main__':
     check_certificates()
 
@@ -118,7 +135,12 @@ if __name__ == '__main__':
     watch_docker_events_task = asyncio.ensure_future(watch_docker_events())
 
     loop = asyncio.get_event_loop()
+
+    for signame in ('SIGINT', 'SIGTERM'):
+        loop.add_signal_handler(getattr(signal, signame), functools.partial(ask_exit, signame))
+
     loop.run_until_complete(
         asyncio.wait([cron_task, watch_docker_events_task], return_when=asyncio.FIRST_COMPLETED)
     )
+
     loop.close()
