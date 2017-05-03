@@ -38,7 +38,7 @@ def get_containers():
         (cid, labels) = line.split('|')
         labels = dict(
             (l, v) for l, v in (
-                s.split("=") for s in labels.split(","))
+                s.split('=') for s in labels.split(','))
             if l in ['LETSENCRYPT_DOMAINS', 'LETSENCRYPT_EMAIL']
         )
 
@@ -81,7 +81,7 @@ def check_certificates():
 
         letsencrypt_email = container['labels']['LETSENCRYPT_EMAIL']
         letsencrypt_domains = container['labels']['LETSENCRYPT_DOMAINS']
-        letsencrypt_domains = [d.strip() for d in letsencrypt_domains.split(',')]
+        letsencrypt_domains = [d.strip() for d in letsencrypt_domains.split()]
         letsencrypt_domains = [d for d in letsencrypt_domains if d]
 
         assert len(letsencrypt_domains) > 0
