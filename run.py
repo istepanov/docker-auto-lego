@@ -4,9 +4,10 @@ import os
 import asyncio
 import functools
 import signal
+import requests
 from datetime import datetime
 from asyncio.subprocess import PIPE, STDOUT
-from plumbum import RETCODE
+from plumbum import RETCODE, local
 from plumbum.cmd import docker, lego, openssl, grep, cut
 
 
@@ -48,6 +49,29 @@ def get_containers():
     return containers
 
 
+def try_get_aws_credentials():
+    try:
+        print('Trying retrieve AWS credentials... ', end='')
+        r = requests.get('http://169.254.169.254/latest/meta-data/iam/security-credentials/', timeout=10)
+        r.raise_for_status()
+        iam_role = r.text
+        if not iam_role:
+            return None
+
+        r = requests.get('http://169.254.169.254/latest/meta-data/iam/security-credentials/{0}'.format(iam_role), timeout=10)
+        r.raise_for_status()
+        response = r.json()
+        env = {
+            'AWS_ACCESS_KEY_ID': response['AccessKeyId'],
+            'AWS_SECRET_ACCESS_KEY': response['SecretAccessKey'],
+        }
+        print('Success!')
+        return env
+    except (requests.exceptions.RequestException, ValueError, KeyError):
+        print('Failed.')
+        return None
+
+
 def check_certificates():
     containers = get_containers()
     print('Found {0} containers that require SSL certs.'.format(len(containers)))
@@ -80,6 +104,8 @@ def check_certificates():
             action = 'run'
 
         if action is not None:
+            env = None
+
             lego_command = lego[
                 '--accept-tos',
                 '--path', LEGO_DIR,
@@ -89,11 +115,21 @@ def check_certificates():
                 lego_command = lego_command['--domains', domain]
             if LEGO_DNS:
                 lego_command = lego_command['--dns', LEGO_DNS]
+                if LEGO_DNS == 'route53':
+                    if 'AWS_ACCESS_KEY_ID' not in os.environ or 'AWS_SECRET_ACCESS_KEY' not in os.environ:
+                        env = try_get_aws_credentials()
+
             elif LEGO_WEBROOT:
                 lego_command = lego_command['--webroot', LEGO_WEBROOT]
             if LETSENCRYPT_SERVER:
                 lego_command = lego_command['--server', LETSENCRYPT_SERVER]
             lego_command = lego_command[action]
+
+            if env:
+                with local.env(**env):
+                    return_code = lego_command & RETCODE(FG=True)
+            else:
+                return_code = lego_command & RETCODE(FG=True)
 
             return_code = lego_command & RETCODE(FG=True)
             if return_code == 0:

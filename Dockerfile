@@ -8,7 +8,7 @@ RUN apk add --no-cache python3 docker openssl && \
     python3 -m ensurepip && \
     rm -r /usr/lib/python*/ensurepip && \
     pip3 install --upgrade pip setuptools && \
-    pip3 install plumbum && \
+    pip3 install plumbum requests && \
     rm -r /root/.cache
 
 RUN apk add --no-cache --virtual=build-dependencies wget ca-certificates && \
